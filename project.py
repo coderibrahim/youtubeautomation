@@ -1,85 +1,143 @@
 import pyttsx3
 import os
 import random
-import cv2
 from moviepy.editor import *
+import cv2
+import time
+from pymongo import MongoClient
+import subprocess
+import schedule
 
-# Metni seslendiren TTS motorunu oluşturun
-engine = pyttsx3.init()
-engine.setProperty('rate', 140)
-engine.setProperty('pitch', 10)
+client = MongoClient("mongodb+srv://ibrahim:plaka65jk21706556..@cluster0.sboemja.mongodb.net/test")
+db = client["horror"]
+collection = db["stories"]
 
-text = "I live up in Monroeville, Pennsylvania. For those who don’t know, it’s a historical site when it comes to horror movies; being that it has the mall where they recorded the original Dawn of the Dead back in 1977."
-name = "Monroeville_Pennsylvania_horror_story"
-
-# Metni seslendirin ve ses dosyasını kaydedin
-engine.save_to_file(text, f"{name}.mp3")
-engine.runAndWait()  # Ses dosyasını tamamen oluşturduktan sonra devam edin
-
-# Rastgele bir şarkı seçin ve ses dosyası ile birleştirin
-song_files = os.listdir("songs")
-audio = AudioFileClip(f"{name}.mp3")
-song = AudioFileClip(os.path.join("songs", random.choice(song_files)))
-audio_duration = audio.duration  # Ses süresini alın
-final_audio = CompositeAudioClip([audio, song.set_duration(audio_duration)])  # Şarkıyı ses dosyası ile birleştirin
-
-# Intro videosunu seçin
-intro_folder = "intro"
-intro_files = os.listdir(intro_folder)
-selected_intro = os.path.join(intro_folder, random.choice(intro_files))
-
-# Intro videosunu projenin başına ekleyin
-intro_video = VideoFileClip(selected_intro)
-intro_video = intro_video.set_duration(audio_duration)  # intro videosunun süresini sesin uzunluğuna ayarlayın
-
-# Görüntüleri indirin ve boyutlandırarak birleştirin
-image_folder = "images"
-output_video = f"{name}.mp4"
-
-image_files = os.listdir(image_folder)
-random.shuffle(image_files)
-
-# Geçiş efektlerini belirleyin
-gecis_suresi = 1.5  # Geçiş süresi (saniye)
-
-images = []
-for i, img_file in enumerate(image_files):
-    img_path = os.path.join(image_folder, img_file)
-    img_clip = ImageClip(img_path).set_duration(5)
+def first_operations():
+    # Veritabanından isUsed değeri False olan rastgele bir veriyi çek {"isUsed": False}
+    random_story = collection.find_one()
     
-    # İlk fotoğraf için geçiş efekti uygulama
-    if i == 0:
-        images.append(img_clip)
+    if random_story:
+        story_id = random_story["_id"]
+        story_main = random_story["storie"]
+        story_title = random_story["title"]
+        storyDescription = random_story["description"]
+        storyKeywords = random_story["keywords"]
+
+        collection.update_one({"_id": story_id}, {"$set": {"isUsed": True}})
+        print(f"Rastgele veri çekildi ve isUsed True yapıldı: {random_story}")
+        create_video(story_main, story_title, storyDescription, storyKeywords)
     else:
-        prev_img_clip = images[i - 1]
-        img_clip = img_clip.set_start(prev_img_clip.end - gecis_suresi)  # Geçiş süresini ayarla
-        img_clip = img_clip.crossfadein(gecis_suresi)  # Geçiş efekti uygula
-        images.append(img_clip)
+        print("Tüm veriler isUsed True olarak işaretlenmiş veya uygun veri bulunamadı.")
 
-# Görüntüleri boyutlandırın ve çözünürlüğü ayarlayın
-width, height = 1280, 720  # Hedef çözünürlük
-images_resized = []
-for img_clip in images:
-    img_array = img_clip.get_frame(0)
-    img_resized = cv2.resize(img_array, (width, height))
-    img_clip_resized = ImageClip(img_resized, duration=img_clip.duration)
-    images_resized.append(img_clip_resized)
 
-video = concatenate_videoclips(images_resized, method="compose")
+def create_video(story_main, story_title, storyDescription, storyKeywords):
+    engine = pyttsx3.init()
+    engine.setProperty('rate', 140)
+    engine.setProperty('pitch', 10)
 
-# Video çözünürlüğünü, FPS'i, codec'i ve video bitrate'ini ayarlayın
-video = video.resize(width=width, height=height)
-video.fps = 30  # FPS değerini ayarlayın
-codec = "libx264"  # Video codec'i
-bitrate = "2000k"  # Video bitrate'i (örnek değer)
+    text = story_main
+    name = "Monroeville_Pennsylvania_horror_story"
 
-# Ses dosyasını videoya ekleyin ve final_video'yu tanımlayın
-final_video = concatenate_videoclips([intro_video, video.set_audio(final_audio)], method="compose")
+    # Metni seslendirin ve ses dosyasını kaydedin
+    engine.save_to_file(text, f"{name}_story.mp3")
+    engine.runAndWait()  # Ses dosyasını tamamen oluşturduktan sonra devam edin
 
-# Yeniden düzenlenen videonuzu kaydedin
-final_video.write_videofile(output_video, codec=codec, bitrate=bitrate, audio_codec="aac")
+    # Rastgele bir şarkı seçin
+    song_files = os.listdir("songs")
+    song_file = os.path.join("songs", random.choice(song_files))
 
-# Ses dosyasını ve ara dosyaları temizleyin
-os.remove(f"{name}.mp3")
+    # Şarkıyı ve hikaye sesini yükleyin
+    audio_story = AudioFileClip(f"{name}_story.mp3")
+    audio_song = AudioFileClip(song_file)
 
-print("Video oluşturuldu:", output_video)
+    # Metin seslendirme dosyasının süresini alın
+    text_duration = audio_story.duration
+
+    # Şarkının süresini alın
+    song_duration = audio_song.duration
+
+    # Şarkıyı metin seslendirme dosyasının süresine göre kırpın
+    if song_duration > text_duration:
+        audio_song = audio_song.subclip(0, text_duration)
+
+    final_audio = CompositeAudioClip([audio_story, audio_song])  # Şarkıyı ses dosyası ile birleştirin
+
+    # Görüntüleri indirin ve boyutlandırarak birleştirin
+    image_folder = "images"
+    output_video = f"{name}.mp4"
+
+    image_files = os.listdir(image_folder)
+    random.shuffle(image_files)
+    
+    image_duration = text_duration / len(image_files)
+    num_images = len(image_files)
+
+    images = [ImageClip(os.path.join(image_folder, img)).set_duration(image_duration)
+          for img in image_files[:num_images]]
+
+    # Görüntüleri boyutlandırın ve çözünürlüğü ayarlayın
+    width, height = 1280, 720  # Hedef çözünürlük
+    images_resized = []
+    for img_clip in images:
+        img_array = img_clip.get_frame(0)
+        img_resized = cv2.resize(img_array, (width, height))
+        img_clip_resized = ImageClip(img_resized, duration=img_clip.duration)
+        images_resized.append(img_clip_resized)
+
+    video = concatenate_videoclips(images_resized, method="compose")
+
+    # Video çözünürlüğünü, FPS'i, codec'i ve video bitrate'ini ayarlayın
+    video = video.resize(width=width, height=height)
+    video.fps = 30  # FPS değerini ayarlayın
+    codec = "libx264"  # Video codec'i
+    bitrate = "2000k"  # Video bitrate'i (örnek değer)
+
+    # Intro videosunu seçin
+    intro_folder = "intro"
+    intro_files = os.listdir(intro_folder)
+    selected_intro = os.path.join(intro_folder, random.choice(intro_files))
+
+    # Intro videosunu projenin başına ekleyin
+    intro_video = VideoFileClip(selected_intro)
+    intro_video = intro_video.set_duration(5)  # intro videosunun süresini sesin uzunluğuna ayarlayın
+
+    # Son videoyu oluşturun ve sona rastgele bir video ekleyin video.set_audio(final_audio)
+    final_video = concatenate_videoclips([intro_video, video.set_audio(final_audio)], method="compose")
+
+    # Rastgele bir video alıp sonuna eklemek için
+    endintro_folder = "endintro"
+    endintro_files = os.listdir(endintro_folder)
+    selected_endintro = os.path.join(endintro_folder, random.choice(endintro_files))
+    endintro_clip = VideoFileClip(selected_endintro)
+    final_video = concatenate_videoclips([final_video, endintro_clip.set_duration(5)], method="compose")
+
+    # Yeniden düzenlenen videonuzu kaydedin
+    final_video.write_videofile(output_video, codec=codec, bitrate=bitrate, audio_codec="aac")
+
+    # Ses dosyasını ve ara dosyaları temizleyin
+    os.remove(f"{name}_story.mp3")
+    
+    cleaned_keywords = storyKeywords.strip("[]").strip()
+    cleaned_title = story_title.strip("[]").strip()
+    cleaned_description = storyDescription.strip("[]").strip()
+
+    upload_video_command = [
+        "python",  # Python yürütücüsünü çağır
+        "upload_video.py",  # Yürütmek istediğiniz betik dosyasının adı
+        f"--file={output_video}",  # Video dosyasının yolunu ver
+        f"--title={cleaned_title}",  # Video başlığı
+        f"--description={cleaned_description}",  # Video açıklaması
+        f"--keywords={cleaned_keywords}",  # Anahtar kelimeler
+        "--category=39",  # Kategori
+        "--privacyStatus=public"
+    ]
+
+    # upload_video.py dosyasını çağır
+    try:
+        subprocess.run(upload_video_command, check=True)
+        print("Video yüklemesi başarıyla tamamlandı.")
+    except subprocess.CalledProcessError as e:
+        print(f"Video yükleme hatası: {e}")
+    # upload_video.py dosyasını başka bir Python betiği olarak çağır
+
+first_operations()
