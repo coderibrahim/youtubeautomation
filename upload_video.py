@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+from argparse import Namespace
 import httplib2
 import os
 import random
@@ -13,6 +14,10 @@ from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
 from oauth2client.tools import argparser, run_flow
 
+coverimages_folder = "coverimages"
+image_files = os.listdir(coverimages_folder)
+selected_image = random.choice(image_files)
+image_path = os.path.join(coverimages_folder, selected_image)
 
 # Explicitly tell the underlying HTTP transport library not to retry, since
 # we are handling retry logic ourselves.
@@ -66,6 +71,32 @@ https://developers.google.com/api-client-library/python/guide/aaa_client_secrets
 
 VALID_PRIVACY_STATUSES = ("public", "private", "unlisted")
 
+def upload_video_to_yt(video_file: str, title: str, description: str, tags: list):
+    if not os.path.exists(video_file):
+        print("Couldn't find file:", video_file)
+        exit(1)
+
+    information = Namespace(
+        auth_host_name="localhost",
+        noauth_local_webserver=False,
+        auth_host_port=[8080, 8090],
+        logging_level="INFO",
+        file=video_file,
+        title=title,
+        description=description,
+        category="24",
+        keywords=tags,      
+        privacyStatus="public",
+    )
+
+    youtube = get_authenticated_service(information)
+    try:
+        initialize_upload(youtube, information)
+    except HttpError as e:
+        print("An HTTP error %d occurred:\n%s" % (e.resp.status, e.content))
+    else:
+        print(f"LETS GO! FILE {video_file} IS NOW UPLOADED AS \"{title}\"!")
+
 
 def get_authenticated_service(args):
     flow = flow_from_clientsecrets(CLIENT_SECRETS_FILE,
@@ -103,19 +134,9 @@ def initialize_upload(youtube, options):
     insert_request = youtube.videos().insert(
         part=",".join(body.keys()),
         body=body,
-        # The chunksize parameter specifies the size of each chunk of data, in
-        # bytes, that will be uploaded at a time. Set a higher value for
-        # reliable connections as fewer chunks lead to faster uploads. Set a lower
-        # value for better recovery on less reliable connections.
-        #
-        # Setting "chunksize" equal to -1 in the code below means that the entire
-        # file will be uploaded in a single HTTP request. (If the upload fails,
-        # it will still be retried where it left off.) This is usually a best
-        # practice, but if you're using Python older than 2.6 or if you're
-        # running on App Engine, you should set the chunksize to something like
-        # 1024 * 1024 (1 megabyte).
         media_body=MediaFileUpload(options.file, chunksize=-1, resumable=True)
     )
+
 
     resumable_upload(insert_request)
 
